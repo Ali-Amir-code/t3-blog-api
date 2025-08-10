@@ -33,8 +33,8 @@ A minimal, framework-free REST API in **core PHP** for CRUD operations on blog p
 1. **Clone the repo** (or copy files) into your server’s document root:
 
    ```bash
-   git clone https://your-repo-url.git rest_api_t3
-   cd rest_api_t3
+   git clone https://github.com/ali-amir-code/t3-blog-api
+   cd t3-blog-api
     ````
 
 2. **Ensure PHP can write** (no special permissions needed for this sample).
@@ -80,7 +80,7 @@ define('DB_PASS', '');             // DB password
 No URL rewriting needed. All traffic goes through **api.php**:
 
 ```
-http://localhost/.../rest_api_t3/api.php
+http://localhost/.../t3-blog-api/api.php
 ```
 
 Anything after `api.php/` is the **PATH\_INFO** that your router parses:
