@@ -1,25 +1,3 @@
-<!--
-Vanilla HTML/CSS/JS single-file frontend for the PHP/MySQL RESTful Blog API
-
-How to use:
-1. Save this file as `index.html` and open it in your browser OR serve it from the same server that hosts your API.
-2. Edit the `API_BASE` constant below to point to your API's `api.php` endpoint, e.g.:
-     const API_BASE = 'http://localhost/t3-blog-api/api.php';
-
-Important:
-- The API must allow CORS if you open this file from a different origin (or open via file://). If you serve `index.html` from the same host as the API, CORS isn't needed.
-- This frontend uses the endpoints described in your README: GET /posts, GET /posts/{id}, POST /posts, PUT /posts/{id}, DELETE /posts/{id}
-
-Features included:
-- List all posts (with newest first)
-- View a single post
-- Create new post
-- Edit existing post
-- Delete a post (with confirmation)
-- Simple hash-based routing: #/ , #/post/{id}, #/new, #/edit/{id}
-- Friendly UI with loading and error states
--->
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -64,7 +42,7 @@ Features included:
     <header>
       <div>
         <h1>My Blog</h1>
-        <div class="muted">Simple frontend for your PHP RESTful API</div>
+        <div class="muted">Simple frontend for Blog API (PHP+MYSQL)</div>
       </div>
       <div class="controls">
         <input id="q" class="search" placeholder="Search titles..." />
@@ -73,7 +51,6 @@ Features included:
     </header>
 
     <main id="app">
-      <!-- Content rendered by JS -->
       <div id="loading" class="center">Loading…</div>
     </main>
 
