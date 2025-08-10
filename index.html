@@ -1,0 +1,346 @@
+<!--
+Vanilla HTML/CSS/JS single-file frontend for the PHP/MySQL RESTful Blog API
+
+How to use:
+1. Save this file as `index.html` and open it in your browser OR serve it from the same server that hosts your API.
+2. Edit the `API_BASE` constant below to point to your API's `api.php` endpoint, e.g.:
+     const API_BASE = 'http://localhost/t3-blog-api/api.php';
+
+Important:
+- The API must allow CORS if you open this file from a different origin (or open via file://). If you serve `index.html` from the same host as the API, CORS isn't needed.
+- This frontend uses the endpoints described in your README: GET /posts, GET /posts/{id}, POST /posts, PUT /posts/{id}, DELETE /posts/{id}
+
+Features included:
+- List all posts (with newest first)
+- View a single post
+- Create new post
+- Edit existing post
+- Delete a post (with confirmation)
+- Simple hash-based routing: #/ , #/post/{id}, #/new, #/edit/{id}
+- Friendly UI with loading and error states
+-->
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simple Blog Frontend</title>
+  <style>
+    :root{--bg:#f7f8fb;--card:#ffffff;--muted:#6b7280;--accent:#0ea5a4;--danger:#ef4444}
+    *{box-sizing:border-box}
+    body{font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; background:var(--bg); color:#0f172a}
+    .wrap{max-width:980px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:10px;align-items:center}
+    button, .btn{background:var(--accent);color:white;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .btn.ghost{background:transparent;color:var(--accent);border:1px solid rgba(14,165,164,.12)}
+    .list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+    .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 6px 16px rgba(2,6,23,.06)}
+    .title{font-weight:600;margin:0 0 8px}
+    .meta{font-size:12px;color:var(--muted);margin-bottom:8px}
+    .excerpt{color:#334155;font-size:14px}
+    .card-actions{display:flex;gap:8px;margin-top:12px}
+    .small{padding:6px 8px;border-radius:8px;font-size:13px}
+    .danger{background:transparent;color:var(--danger);border:1px solid rgba(239,68,68,.08)}
+    .view{margin-top:18px}
+    .view h2{margin:0 0 6px}
+    .view .content{white-space:pre-wrap;color:#334155}
+    form{display:flex;flex-direction:column;gap:10px}
+    label{font-size:13px;color:var(--muted)}
+    input[type=text], textarea{padding:10px;border-radius:8px;border:1px solid #e6e9ef;font-size:14px}
+    textarea{min-height:160px;resize:vertical}
+    .row{display:flex;gap:10px}
+    .muted{color:var(--muted);font-size:13px}
+    .center{display:flex;justify-content:center;align-items:center}
+    .toast{position:fixed;right:16px;bottom:16px;background:#111827;color:white;padding:10px 14px;border-radius:8px;box-shadow:0 8px 24px rgba(2,6,23,.25)}
+    .search{padding:8px 10px;border-radius:10px;border:1px solid #e6e9ef;background:white}
+    @media(max-width:520px){.row{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>My Blog</h1>
+        <div class="muted">Simple frontend for your PHP RESTful API</div>
+      </div>
+      <div class="controls">
+        <input id="q" class="search" placeholder="Search titles..." />
+        <button id="newBtn">New Post</button>
+      </div>
+    </header>
+
+    <main id="app">
+      <!-- Content rendered by JS -->
+      <div id="loading" class="center">Loading…</div>
+    </main>
+
+    <div id="toast" class="toast" style="display:none"></div>
+  </div>
+
+  <script>
+const API_BASE = window.location.origin + '/api.php';
+    const endpoint = (path) => {
+      if (!API_BASE) throw new Error('Please set API_BASE at the top of the file to your api.php endpoint.');
+      return API_BASE + '/' + path.replace(/^\/+/, '');
+    };
+
+    const app = document.getElementById('app');
+    const toastEl = document.getElementById('toast');
+    const qInput = document.getElementById('q');
+    const newBtn = document.getElementById('newBtn');
+
+    let posts = [];
+    let isLoading = false;
+
+    /***** UTILS ******/
+    function showToast(msg, timeout=3000){
+      toastEl.textContent = msg; toastEl.style.display='block';
+      setTimeout(()=>{ toastEl.style.display='none'; }, timeout);
+    }
+
+    async function apiFetch(path, opts={}){
+      try{
+        isLoading = true; renderLoading();
+        const res = await fetch(path, opts);
+        const text = await res.text();
+        // API returns JSON or empty body
+        let data;
+        try{ data = text ? JSON.parse(text) : null; } catch(e){ data = { error: 'Invalid JSON response' } }
+        if (!res.ok) {
+          const err = data?.error || data?.message || res.statusText;
+          throw new Error(err || 'Request failed');
+        }
+        return data;
+      }finally{
+        isLoading = false; renderLoading();
+      }
+    }
+
+    function renderLoading(){
+      const el = document.getElementById('loading');
+      if (!el) return;
+      el.style.display = isLoading ? 'flex' : 'none';
+    }
+
+    function formatDate(s){
+      if(!s) return '';
+      const d = new Date(s);
+      if (isNaN(d)) return s;
+      return d.toLocaleString();
+    }
+
+    function excerpt(text, n=140){
+      if (!text) return '';
+      return text.length>n ? text.slice(0,n).trim() + '…' : text;
+    }
+
+    /***** RENDERERS ******/
+    function renderList(){
+      const search = qInput.value.trim().toLowerCase();
+      const filtered = posts.filter(p => p.title.toLowerCase().includes(search));
+      const html = `
+        <section>
+          <div class="list">
+            ${filtered.map(p => `
+              <article class="card" data-id="${p.id}">
+                <h3 class="title">${escapeHtml(p.title)}</h3>
+                <div class="meta">${formatDate(p.created_at)}</div>
+                <div class="excerpt">${escapeHtml(excerpt(p.content,120))}</div>
+                <div class="card-actions">
+                  <button class="small" data-action="view" data-id="${p.id}">View</button>
+                  <button class="small btn ghost" data-action="edit" data-id="${p.id}">Edit</button>
+                  <button class="small danger" data-action="delete" data-id="${p.id}">Delete</button>
+                </div>
+              </article>
+            `).join('')}
+          </div>
+        </section>
+      `;
+      app.innerHTML = html;
+    }
+
+    function renderPost(post){
+      app.innerHTML = `
+        <article class="card view">
+          <h2>${escapeHtml(post.title)}</h2>
+          <div class="meta">${formatDate(post.created_at)}</div>
+          <div class="content">${escapeHtml(post.content)}</div>
+          <div class="card-actions" style="margin-top:12px">
+            <button class="small" data-action="back">Back</button>
+            <button class="small btn ghost" data-action="edit" data-id="${post.id}">Edit</button>
+            <button class="small danger" data-action="delete" data-id="${post.id}">Delete</button>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderForm({mode='new', post={title:'',content:''}, id=null} = {}){
+      const heading = mode === 'new' ? 'Create post' : 'Edit post';
+      app.innerHTML = `
+        <section class="card">
+          <h3>${heading}</h3>
+          <form id="postForm">
+            <div>
+              <label>Title</label>
+              <input type="text" name="title" value="${escapeHtml(post.title)}" required />
+            </div>
+            <div>
+              <label>Content</label>
+              <textarea name="content" required>${escapeHtml(post.content)}</textarea>
+            </div>
+            <div class="row" style="margin-top:6px">
+              <button type="submit" class="btn">${mode==='new' ? 'Create' : 'Save'}</button>
+              <button type="button" class="btn ghost" data-action="cancel">Cancel</button>
+              ${mode==='edit' ? `<button type="button" class="danger" data-action="delete" data-id="${id}">Delete</button>` : ''}
+            </div>
+          </form>
+        </section>
+      `;
+
+      const form = document.getElementById('postForm');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const payload = {
+          title: formData.get('title').trim(),
+          content: formData.get('content').trim()
+        };
+        try{
+          if (mode==='new'){
+            const res = await apiFetch(endpoint('posts'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            showToast('Created');
+            // go to post view if api returned id
+            if (res?.id) location.hash = '#/post/' + res.id;
+            else await loadPostsAndGoHome();
+          } else {
+            await apiFetch(endpoint('posts/' + id), {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            showToast('Saved');
+            location.hash = '#/post/' + id;
+          }
+        }catch(err){ showToast('Error: '+err.message); }
+      });
+
+      form.querySelector('[data-action="cancel"]').addEventListener('click', ()=>{ history.back(); });
+      const delBtn = form.querySelector('[data-action="delete"]');
+      if (delBtn) delBtn.addEventListener('click', async ()=>{
+        if (!confirm('Delete this post?')) return;
+        try{
+          await apiFetch(endpoint('posts/' + id), { method: 'DELETE' });
+          showToast('Deleted');
+          location.hash = '#/';
+        }catch(err){ showToast('Error: '+err.message); }
+      });
+    }
+
+    /***** ACTIONS ******/
+    async function loadPosts(){
+      try{
+        const data = await apiFetch(endpoint('posts')) || [];
+        // sort by created_at desc if present
+        posts = Array.isArray(data) ? data.sort((a,b)=> new Date(b.created_at) - new Date(a.created_at)) : [];
+      }catch(err){ showToast('Error loading posts: '+err.message); posts = []; }
+    }
+
+    async function loadPostsAndGoHome(){
+      await loadPosts();
+      location.hash = '#/';
+    }
+
+    async function viewPost(id){
+      try{
+        const data = await apiFetch(endpoint('posts/' + id));
+        renderPost(data);
+      }catch(err){ showToast('Error: '+err.message); location.hash='#/'; }
+    }
+
+    async function deletePost(id){
+      if (!confirm('Delete post?')) return;
+      try{
+        await apiFetch(endpoint('posts/' + id), { method: 'DELETE' });
+        showToast('Deleted');
+        await loadPosts(); renderList();
+      }catch(err){ showToast('Error: '+err.message); }
+    }
+
+    async function editPost(id){
+      try{
+        const data = await apiFetch(endpoint('posts/' + id));
+        renderForm({mode:'edit', post:data, id});
+      }catch(err){ showToast('Error: '+err.message); location.hash='#/'; }
+    }
+
+    /***** ROUTER ******/
+    async function router(){
+      const hash = location.hash.replace(/^#/, '') || '/';
+      const parts = hash.split('/').filter(Boolean);
+      if (hash === '/' || hash === ''){
+        // home -> list
+        await loadPosts(); renderList();
+      } else if (parts[0] === 'post' && parts[1]){
+        await viewPost(parts[1]);
+      } else if (parts[0] === 'new'){
+        renderForm({mode:'new'});
+      } else if (parts[0] === 'edit' && parts[1]){
+        await editPost(parts[1]);
+      } else {
+        app.innerHTML = '<div class="card">Not found</div>';
+      }
+    }
+
+    /***** GLOBAL EVENT HANDLERS ******/
+    window.addEventListener('hashchange', router);
+    window.addEventListener('popstate', router);
+
+    // Delegated clicks
+    document.addEventListener('click', (e)=>{
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      if (action === 'view') location.hash = '#/post/' + id;
+      if (action === 'edit') location.hash = '#/edit/' + id;
+      if (action === 'back') history.back();
+      if (action === 'delete' && id) deletePost(id);
+    });
+
+    newBtn.addEventListener('click', ()=>{ location.hash = '#/new'; });
+    qInput.addEventListener('input', ()=>{ if (location.hash === '' || location.hash === '#/' ) renderList(); });
+
+    /***** BOOTSTRAP / SANITY ******/
+    function escapeHtml(str){
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+
+    // Initial render
+    (async function init(){
+      try{
+        if (!API_BASE) {
+          app.innerHTML = '<div class="card">\n  <h3>Configuration required</h3>\n  <p class="muted">Open this file and set the <code>API_BASE</code> constant to your api.php endpoint.</p>\n</div>';
+          return;
+        }
+        await router();
+      }catch(err){
+        app.innerHTML = '<div class="card">Error: ' + escapeHtml(err.message) + '</div>';
+      }
+    })();
+
+  </script>
+</body>
+</html>
